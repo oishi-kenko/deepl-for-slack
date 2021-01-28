@@ -1,0 +1,47 @@
+#!/bin/sh
+
+set -e
+
+BUILD_TARGET_NAME="${BUILD_TARGET_NAME:-deepl-for-slack}"
+AWS_ACCOUNT_ID=403900090112
+AWS_REGION=ap-northeast-1
+BUILD_TARGET_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BUILD_TARGET_NAME
+
+build () {
+    docker build --no-cache -t $BUILD_TARGET_NAME .
+}
+
+push () {
+    # add appropriate tags to the image
+    timestamp=`date +%Y%m%d_%H%M%S`
+    revision=`git rev-parse HEAD | cut -b 1-7`
+    username=${USERNAME:-`aws sts get-caller-identity | jq -r '.Arn' | grep -o -E "(\w|-)+$"`}
+
+    if [ ${username} = "ci" ]; then
+      tag=${timestamp}-${revision}
+    else
+      tag=${timestamp}-${revision}.${username}
+    fi
+
+    docker tag $BUILD_TARGET_NAME:latest $BUILD_TARGET_REPO:latest
+    docker tag $BUILD_TARGET_NAME:latest $BUILD_TARGET_REPO:$tag
+
+    echo "Image built and tagged: $tag"
+
+    # push the image to the repo as the latest image
+    docker push $BUILD_TARGET_REPO:latest
+    # push the image to the repo with date-based name tag
+    docker push $BUILD_TARGET_REPO:$tag
+}
+
+case "$1" in
+  build)
+      build
+      ;;
+  push)
+      push
+      ;;
+  *)
+    echo $"Usage: $0 {build|push}"
+    exit 2
+esac
